@@ -7,7 +7,7 @@ import "@openzeppelin/contracts/utils/Counters.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
 import "@openzeppelin/contracts/utils/math/SafeMath.sol";
-contract QiaoNFT is ERC721,Ownable,ReentrancyGuard,ERC721Enumerable{
+contract QiaoNFT is Ownable,ReentrancyGuard,ERC721Enumerable{
     using Strings for uint256;
     // 定义变量
     uint256 public MAX_NFT = 1000;                                          //合约最大发行数量，表示最多能够发行的 NFT 数量
@@ -53,24 +53,40 @@ contract QiaoNFT is ERC721,Ownable,ReentrancyGuard,ERC721Enumerable{
       }
     }
 
-    // 白单预售 需要提供 Merkle 树证明，并且只能在预售期间调用。
-    function mintPresaleNFT(uint8 numberOfTokens)public payable nonReentrant {
+    // 白名单购买nft
+    function mintAllowList(uint8 numberOfTokens) external payable{
         //先确定nft总量
         uint256 ts = totalSupply();
         //验证是否是发售时间
         require(block.timestamp >=unlockDate,"The sale is not start yet");
-        //验证是否已达到最大购买数量
-        require(numberOfTokens <= _allowList[msg.sender],"Exceeded max available to purchase");
+        //验证mint个数是否符合_allowList下的数量
+        require(numberOfTokens <= _allowList[msg.sender], "Exceeded max available to purchase");
         //验证加上mint的数量是否超过最大的数量
         require( ts + numberOfTokens <= MAX_NFT,"Purchase would exceed max tokens");
         //验证支付的eth是否足够
         require(WL_PRICE_PER_TOKEN * numberOfTokens <= msg.value,"Ether value sent is not correct" );
-        // 对于白名单下的mint数量进行操做
         _allowList[msg.sender] -= numberOfTokens;
-        //循环把mint依次转入mint人的地址
-        for(uint256 i = 0;i<numberOfTokens;i++){
-            _safeMint(msg.sender,ts +1);
+        for (uint256 i = 0; i < numberOfTokens; i++) {
+            _safeMint(msg.sender, ts + i);
         }
+    }
+
+    // 白单预售 需要提供 Merkle 树证明，并且只能在预售期间调用。
+    function mintPresaleNFT(uint256 _count, bytes32[] calldata merkleProof)public payable nonReentrant {
+
+        bytes32 node = keccak256(abi.encodePacked(msg.sender));
+		uint256 totalSupply = totalSupply();
+		require(presaleEnable, "Pre-sale is not enable");
+        require(totalSupply + _count <= MAX_NFT, "Exceeds max limit");
+		require(MerkleProof.verify(merkleProof, merkleRoot, node), "MerkleDistributor: Invalid proof.");
+		require(users[msg.sender].presalemint + _count <= MAX_MINT_PRESALE,"Exceeds max mint limit per wallet");
+		require(_count <= MAX_BY_MINT_IN_TRANSACTION_PRESALE,"Exceeds max mint limit per tnx");
+		require(msg.value >= PRESALE_PRICE * _count,"Value below price");
+		for (uint256 i = 0; i < _count; i++) {
+            _safeMint(msg.sender, totalSupply + i);
+			PRESALE_MINTED++;
+        }
+		users[msg.sender].presalemint = users[msg.sender].presalemint + _count;
     }
     
 
@@ -86,10 +102,10 @@ contract QiaoNFT is ERC721,Ownable,ReentrancyGuard,ERC721Enumerable{
         //循环把nft依次转入对方的地址
 		for (uint256 i = 0; i < _count; i++) {
             _safeMint(_to, totalSupply + i);
-			GIVEAWAY_MINTED++;
+			GIVEAWAY_MINTED++; 
         }
     }
-
+    
     // 公开发售
     //查询 图片 NFT 在 IPFS 上的基础 URI
     function _baseURI() internal view override returns (string memory) {
@@ -98,8 +114,9 @@ contract QiaoNFT is ERC721,Ownable,ReentrancyGuard,ERC721Enumerable{
     //修改 图片 NFT 在 IPFS 上的基础 URI
     function setBaseURI(string memory newBaseURI) public onlyOwner {
         baseURI = newBaseURI;
-    }
 
+        
+    }
 
 
 }
